@@ -1,9 +1,17 @@
 import sys # for commandline arg
 import os
-import tkinter.messagebox as tkmbx
+import tkinter.messagebox as tkmsgbox
 import tkinter.filedialog as tkfdlg
 
+# --- source configurations ---
 debug = False
+
+# --- [IN] ---
+bCallFromWindow:bool = False	# set as True you wanna use this script from another script
+strPathToFileOffset	= ''		# Put path of famitracker exported textfile that you wanna offset "PATTERN"s and "ORDER"s
+
+# --- [OUT] ---
+# none (This file gonna spits just "out*.txt")
 
 def offsetPTRNline(strLine:str, offset:int) -> str:
 	tmpNumPattern :int = 0
@@ -15,27 +23,46 @@ def offsetPTRNline(strLine:str, offset:int) -> str:
 	tmpNumPattern += offset
 	if(True == debug):
 		print("PATTERN " + '{:X}'.format(tmpNumPattern))
-	strLine = "PATTERN " + '{:X}'.format(tmpNumPattern) + "\r\n"
+	strLine = "PATTERN " + '{:X}'.format(tmpNumPattern) + "\n"
 	return strLine
 
-def main():
-	if(0):	# 251231 to add commandline args
-		numPatternOffset = int('11', 16)
-	# (end 251231)
+# // ========================
+# // insertORDERlines 
+# // Add "ORDER" sentenses that we offsetted
+# // args:
+# // 	offset:
+# // 		amount of offsetted
+# // 	strLines:
+# // 		Please provide a list of strings obtained by f.readlines from a Famitracker file.
+# // return:
+# // 	ORDER文が追記(挿入)された文字列のリストを返します
+# // ========================
+def insertORDERlines(offset:int, strLines:list[str]) -> list[str]:
+	idxLastLineOfORDER:int = 0	# last row of "ORDER" line
+	tmpOrderList:list[str] = []	# list of "ORDER" strings to we going to add
+	if(len(strLines) <= 0):
+		return ["error", ]
+	else:	
+		# 行毎に処理を行う
+		for idxNum in range(len(strLines)):
+			# ORDER文の最終行であるかチェック
+			if("ORDER" in strLines[idxNum] and (not ("ORDER" in strLines[idxNum + 1]))):
+				numStr = strLines[idxNum].rstrip()[-2:]
+				# ------ 追加分のORDERの行を作る ------
+				for addIdx in range(offset):
+					tmpNum = int(numStr, 16) + addIdx + 1
+					# もとの文字列の16進数を置換をして追加分の行の文字列を作成する
+					lineReplaced = strLines[idxNum].rstrip().replace(numStr, '{:X}'.format(tmpNum)) + "\n"
+					tmpOrderList.append(lineReplaced)
+				# --- 後述のリスト挿入処理用に位置を保存しておく ---
+				idxLastLineOfORDER = idxNum + 1
 
-	if(0):
-		# for future convinience 
-		tkmbx.showinfo(title="Select file", message="Select first famitracker txt file")
-		
-		fTyp = [("Famitracker Text file", "*.txt")]
-		iDir = os.path.abspath(os.path.dirname(__file__))
-		file_name = tkfdlg.askopenfilename(filetypes=fTyp, initialdir=iDir)
-		if(file_name == ''):
-			tkmbx.showerror(message="file not selected!\nleaving...")
-			return -1
-		
-	args = sys.argv
-	if(3 != len(args)):
+		# --- 作ったORDERの行をファイル書き込み用のリストへ挿入する ---
+		strLines[idxLastLineOfORDER:idxLastLineOfORDER] = tmpOrderList
+		return strLines
+	
+def printCmdUsage(void):
+	if(False == bCallFromWindow):
 		print("usage:")
 		print("\tpatternOffsetter [txt that youwanna of set] [number of offset]")
 		
@@ -49,46 +76,37 @@ def main():
 		print("\t[number of offset]:")
 		print("\t\tenter number that you wanna offset")
 		print("\t\tNOTE: Please enter Number as Hexadecimal")
-		return 0
-	else:
-		file_name = args[1]
-		numPatternOffset = int(args[2], 16)
-	
-	if(0):	# 251231 to add commandline args
-		f = open('./The Rabbit has Landed.txt', "r+")
-	# (end 251231)
+
+def main():
+	if(False == bCallFromWindow):
+		# if executed from commandline
+		args = sys.argv
+		if(3 != len(args)):
+			printCmdUsage()
+			return 0
+		else:
+			strPathToFileOffset = args[1]
+			numPatternOffset = int(args[2], 16)
 
 	try	:
-		f = open(file_name, "r+")
-	except UnboundLocalError as uble:
-		print(uble.__str__)
+		f = open(strPathToFileOffset, "r+")
+	except Exception as e:
 		print("unable to open file")
+		print(e.__str__)
 		return -1
 	
 	lines = f.readlines()
 	f.close()
 
+	# ==== pattern offsetting ====
 	for idxNum in range(len(lines)):
 		if("PATTERN" in lines[idxNum]):
 			lines[idxNum] = offsetPTRNline(lines[idxNum], numPatternOffset)
-		if("ORDER" in lines[idxNum] and (not ("ORDER" in lines[idxNum + 1]))):
-			numStr = lines[idxNum].rstrip()[-2:]
-			# ------ 追加分のORDERの行を作る ------
-			tmpOrderList = []
-			for addIdx in range(numPatternOffset - 1):
-				tmpNum = int(numStr, 16) + addIdx + 1
-				# ORDER 20 : 20 20 20 .... などをもとの文字列に対して置換をして作成する
-				lineReplaced = lines[idxNum].rstrip().replace(numStr, '{:X}'.format(tmpNum)) + "\n"
-				tmpOrderList.append(lineReplaced)
-			# --- 後述のリスト挿入処理用に位置を保存しておく ---
-			idxLastLineOfORDER = idxNum + 1
-			
-	# --- 作ったORDERの行をファイル書き込み用のリストへ挿入する ---
-	if(True == debug):				
-		print(tmpOrderList)
-	
-	lines[idxLastLineOfORDER:idxLastLineOfORDER] = tmpOrderList
-	
+
+	# ==== add "ORDER" lines because we offsetted "PATTERN"s ====
+	lines = insertORDERlines(numPatternOffset, lines)
+
+	# ==== save result into out*.txt ====
 	for i in range(255):
 		tmpPathToWrite = "./out" + str(i) + ".txt"
 		if(os.path.isfile(tmpPathToWrite)):
